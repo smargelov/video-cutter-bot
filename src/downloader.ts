@@ -3,9 +3,9 @@ import fetch from 'node-fetch'
 import { authenticate } from './googleAuth.js'
 import path from 'path'
 
-export const getLastVideos = async (count: number) => {
-  const auth = await authenticate()
-  const token = await auth.getAccessToken()
+export const getLastVideos = async (count: number, bot: any, chatId: number) => {
+  const auth = await authenticate(bot, chatId)
+  const token = await auth?.getAccessToken()
 
   const response = await fetch('https://photoslibrary.googleapis.com/v1/mediaItems:search', {
     method: 'POST',
@@ -38,9 +38,9 @@ export const getLastVideos = async (count: number) => {
   }))
 }
 
-export const downloadGooglePhoto = async (mediaItemId: string, outputPath: string): Promise<void> => {
-  const auth = await authenticate()
-  const token = await auth.getAccessToken()
+export const downloadGooglePhoto = async (mediaItemId: string, outputPath: string, bot: any, chatId: number): Promise<void> => {
+  const auth = await authenticate(bot, chatId)
+  const token = await auth?.getAccessToken()
 
   if (!token) {
     throw new Error('Failed to obtain access token.')
@@ -70,9 +70,4 @@ export const downloadGooglePhoto = async (mediaItemId: string, outputPath: strin
 
   const buffer = Buffer.from(await mediaResponse.arrayBuffer())
   fs.writeFileSync(outputPath, buffer)
-}
-
-const extractMediaItemId = (url: string): string | null => {
-  const match = url.match(/\/([a-zA-Z0-9_-]+)$/)
-  return match ? match[1] : null
 }

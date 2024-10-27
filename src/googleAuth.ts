@@ -1,5 +1,4 @@
 import fs from 'fs'
-import readline from 'readline'
 import { google } from 'googleapis'
 import { OAuth2Client } from 'google-auth-library'
 import { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } from './config.js'
@@ -7,7 +6,7 @@ import { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } from './c
 const SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly']
 const TOKEN_PATH = 'token.json'
 
-export const authenticate = async(): Promise<OAuth2Client> => {
+export const authenticate = async (bot: any, chatId: number): Promise<OAuth2Client | null> => {
   const oAuth2Client = new google.auth.OAuth2(
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
@@ -17,33 +16,39 @@ export const authenticate = async(): Promise<OAuth2Client> => {
   if (fs.existsSync(TOKEN_PATH)) {
     const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'))
     oAuth2Client.setCredentials(token)
-    return oAuth2Client
+
+    try {
+      await oAuth2Client.getAccessToken()
+      return oAuth2Client
+    } catch (error) {
+      console.warn('Token expired or invalid. Re-authenticating...')
+      await sendAuthUrl(bot, oAuth2Client, chatId)
+      return null
+    }
   } else {
-    return getNewToken(oAuth2Client)
+    await sendAuthUrl(bot, oAuth2Client, chatId)
+    return null
   }
 }
 
-const getNewToken = (oAuth2Client: OAuth2Client): Promise<OAuth2Client> => {
-  return new Promise((resolve, reject) => {
-    const authUrl = oAuth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: SCOPES
-    })
-    console.log('Authorize this app by visiting this URL:', authUrl)
-
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    })
-    rl.question('Enter the code from that page here: ', (code) => {
-      rl.close()
-      oAuth2Client.getToken(code, (err, token) => {
-        if (err) return reject(err)
-        oAuth2Client.setCredentials(token!)
-        fs.writeFileSync(TOKEN_PATH, JSON.stringify(token))
-        console.log('Token stored to', TOKEN_PATH)
-        resolve(oAuth2Client)
-      })
-    })
+export const sendAuthUrl = async (bot: any, oAuth2Client: OAuth2Client, chatId: number) => {
+  const authUrl = oAuth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: SCOPES
   })
+  await bot.sendMessage(chatId, `Please authorize this app by visiting the following URL:\n${authUrl}`)
+  console.log(`Authentication URL sent to user with chatId: ${chatId}`)
+}
+
+export const getNewToken = async (oAuth2Client: OAuth2Client, code: string) => {
+  const { tokens } = await oAuth2Client.getToken(code)
+  oAuth2Client.setCredentials(tokens)
+  fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens))
+  console.log('Token stored to', TOKEN_PATH)
+}
+
+export const clearToken = () => {
+  if (fs.existsSync(TOKEN_PATH)) {
+    fs.unlinkSync(TOKEN_PATH)
+  }
 }
