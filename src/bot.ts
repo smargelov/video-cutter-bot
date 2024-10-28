@@ -4,8 +4,20 @@ import { TELEGRAM_BOT_TOKEN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDI
 import { downloadGooglePhoto, getLastVideos } from './downloader.js'
 import { cutVideo } from './videoProcessor.js'
 import { authenticate, getNewToken, clearToken, sendAuthUrl } from './googleAuth.js'
+import fs from 'fs/promises'
+import path from 'path'
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true })
+
+let lastDownloadedVideoId: string | null = null
+const fileExists = async (filePath: string): Promise<boolean> => {
+  try {
+    await fs.access(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id
@@ -84,6 +96,7 @@ bot.onText(/\/list (\d+)/, async (msg, match) => {
   }
 })
 
+
 bot.onText(/\/cut (\S+) (\d{2}:\d{2}:\d{2}) (\d{2}:\d{2}:\d{2})/, async (msg, match) => {
   const chatId = msg.chat.id
   const mediaItemId = match?.[1]
@@ -91,17 +104,35 @@ bot.onText(/\/cut (\S+) (\d{2}:\d{2}:\d{2}) (\d{2}:\d{2}:\d{2})/, async (msg, ma
   const endTime = match?.[3]
 
   if (!mediaItemId || !startTime || !endTime) {
+    console.log('Invalid command:', msg.text)
     bot.sendMessage(chatId, 'Please provide a valid media item ID and start/end times in HH:MM:SS format.')
     return
   }
 
-  const inputPath = `./downloads/${mediaItemId}.mp4`
-  const outputPath = `./downloads/${mediaItemId}_cut.mp4`
+  const downloadsDir = './downloads'
+  const inputPath = path.join(downloadsDir, `${mediaItemId}.mp4`)
+  const outputPath = path.join(downloadsDir, `${mediaItemId}_cut.mp4`)
 
   try {
-    await downloadGooglePhoto(mediaItemId, inputPath, bot, chatId)
+    if (lastDownloadedVideoId !== mediaItemId) {
+      const lastInputPath = path.join(downloadsDir, `${lastDownloadedVideoId}.mp4`)
+      console.log('Removing last downloaded video:', lastInputPath)
+      await fs.rm(lastInputPath, { force: true })
+    }
+
+    if (!(await fileExists(inputPath))) {
+      console.log(`Downloading video (start ${new Date().toLocaleString()}):`, mediaItemId)
+      await downloadGooglePhoto(mediaItemId, inputPath, bot, chatId)
+      console.log(`Downloading video (end ${new Date().toLocaleString()}):`, inputPath)
+      lastDownloadedVideoId = mediaItemId
+    }
+
+    console.log(`Cutting video (start ${new Date().toLocaleString()}):`, inputPath)
     await cutVideo(inputPath, outputPath, startTime, endTime)
+    console.log(`Cutting video (end ${new Date().toLocaleString()}):`, outputPath)
+
     await bot.sendVideo(chatId, outputPath, { caption: `Here's your cut video from ${startTime} to ${endTime}.` })
+    await fs.rm(outputPath, { force: true })
   } catch (error) {
     console.error('Error processing video:', error)
     bot.sendMessage(chatId, 'Failed to process the video.')
